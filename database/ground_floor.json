@@ -1,0 +1,122 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 1,
+        "name": "Nike",
+        "floor": 1,
+        "unit": "A101",
+        "category": "Sportswear",
+        "brand": "Nike",
+        "rating": 4.8,
+        "is_stall": false
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [100, 200]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 2,
+        "name": "Nike",
+        "floor": "Ground Floor",
+        "unit_number": "G01",
+        "category": "Fashion",
+        "brand": "Nike",
+        "phone": "+60-12-3456789",
+        "rating": 4.8,
+        "price_range": "$$$",
+        "is_stall": false,
+        "description": "Sportswear and footwear."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [100, 100]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 3,
+        "name": "Guardian",
+        "floor": "Ground Floor",
+        "unit_number": "G02",
+        "category": "Health & Beauty",
+        "brand": "Guardian",
+        "phone": "+60-12-9876543",
+        "rating": 4.5,
+        "price_range": "$$",
+        "is_stall": false,
+        "description": "Health and beauty products."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [180, 100]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 4,
+        "name": "Starbucks",
+        "floor": "Ground Floor",
+        "unit_number": "G03",
+        "category": "Cafe",
+        "brand": "Starbucks",
+        "phone": "+60-12-1122334",
+        "rating": 4.7,
+        "price_range": "$$",
+        "is_stall": false,
+        "description": "Coffee and beverages."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [260, 100]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 5,
+        "name": "Kiosk Accessories",
+        "floor": "Ground Floor",
+        "unit_number": "KS01",
+        "category": "Accessories",
+        "brand": "Local Vendor",
+        "phone": "",
+        "rating": 4.0,
+        "price_range": "$",
+        "is_stall": true,
+        "description": "Phone cases and accessories."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [340, 100]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 6,
+        "name": "Popular Bookstore",
+        "floor": "Ground Floor",
+        "unit_number": "G05",
+        "category": "Books",
+        "brand": "Popular",
+        "phone": "+60-12-5566778",
+        "rating": 4.6,
+        "price_range": "$$",
+        "is_stall": false,
+        "description": "Books, stationery and gifts."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [420, 100]
+      }
+    }
+  ]
+}

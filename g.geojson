@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 1,
+        "name": "Nike",
+        "floor": 1,
+        "unit": "A101",
+        "category": "Sportswear",
+        "brand": "Nike",
+        "phone": "+880123456789",
+        "rating": 4.8,
+        "price_range": "$$",
+        "is_stall": false
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [0, 0]
+      }
+    }
+  ]
+}
