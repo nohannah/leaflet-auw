@@ -4,7 +4,7 @@
     {
       "type": "Feature",
       "properties": {
-        "id": 1,
+        "id": "01",
         "name": "Nike",
         "floor": 1,
         "unit": "A101",
