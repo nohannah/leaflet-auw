@@ -17,7 +17,43 @@ const floorBounds = [[0, 0], [planHeight, planWidth]];
 const classroomImage = L.imageOverlay('first_floor.png', floorBounds);
 classroomImage.addTo(map);
 
+// 5. Load store polygons from PostgreSQL
+fetch('http://localhost:3000/api/map/1')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Failed to load map data');
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('✅ PostgreSQL map data loaded:', data);
+        console.log(`🏪 Stores loaded: ${data.features.length}`);
 
+        const storeLayer = L.geoJSON(data, {
+            style: {
+                weight: 2,
+                fillOpacity: 0.25
+            },
+
+            onEachFeature: function (feature, layer) {
+                const p = feature.properties;
+
+                layer.bindPopup(`
+                    <strong>${p.name || 'Unnamed Store'}</strong><br>
+                    Store: ${p.store_number || 'N/A'}<br>
+                    Type: ${p.store_type || 'N/A'}<br>
+                    Brand: ${p.brand || 'N/A'}
+                `);
+            }
+        });
+
+        storeLayer.addTo(map);
+
+        console.log('✅ Store polygons added to Leaflet');
+    })
+    .catch(error => {
+        console.error('❌ Could not load PostgreSQL map:', error);
+    });
 // 5. Fit map to image bounds
 map.fitBounds(floorBounds);
 // Add a legend

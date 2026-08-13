@@ -14,7 +14,7 @@ DB_CONFIG = {
     "port": 5432,
     "database": "bali_arcade",
     "user": "postgres",
-    "password": "YOUR_POSTGRES_PASSWORD"
+    "password": "123"
 }
 
 

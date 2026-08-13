@@ -5,6 +5,7 @@ const { Client } = require('pg');
 require('dotenv').config();
 
 const app = express();
+app.use(express.static(__dirname));
 const PORT = 3000;
 
 // Database connection
@@ -12,7 +13,7 @@ const client = new Client({
     user: 'postgres',
     host: 'localhost',
     database: 'bali_arcade',
-    password: 'admin123', // CHANGE THIS!
+    password: '123', // CHANGE THIS!
     port: 5432,
 });
 
@@ -61,91 +62,106 @@ app.get('/api/floors', async (req, res) => {
 app.get('/api/map/:floor', async (req, res) => {
     try {
         const floorNumber = parseInt(req.params.floor);
-        
+
+        if (isNaN(floorNumber)) {
+            return res.status(400).json({
+                error: "Invalid floor number"
+            });
+        }
+
         const result = await client.query(`
-            SELECT 
-                s.*,
-                f.floor_name
-            FROM mall.stores s
-            JOIN mall.floors f ON s.floor_id = f.id
+            SELECT
+                s.id,
+                s.store_number,
+                s.name,
+                s.store_type,
+                s.is_stall,
+                s.brand,
+                s.products,
+                s.gender,
+                f.floor_number,
+                f.floor_name,
+                ST_AsGeoJSON(s.geom)::json AS geometry
+            FROM public.stores s
+            JOIN public.floors f
+                ON s.floor_id = f.id
             WHERE f.floor_number = $1
+            AND s.geom IS NOT NULL
         `, [floorNumber]);
-        
-        // Convert to GeoJSON format
+
         const geojson = {
             type: "FeatureCollection",
             features: result.rows.map(store => ({
                 type: "Feature",
                 properties: {
-                    id: store.store_id,
+                    id: store.id,
+                    store_number: store.store_number,
                     name: store.name,
-                    type: store.type,
-                    category: store.category,
-                    status: store.status,
-                    floor: store.floor_name
+                    store_type: store.store_type,
+                    is_stall: store.is_stall,
+                    brand: store.brand,
+                    products: store.products,
+                    gender: store.gender,
+                    floor_number: store.floor_number,
+                    floor_name: store.floor_name
                 },
-                geometry: store.coordinates
+                geometry: store.geometry
             }))
         };
-        
+
         res.json(geojson);
+
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("Map API error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 // 4. Get all stores with filters
 app.get('/api/stores', async (req, res) => {
-    try {
-        const { floor, type, category, status } = req.query;
-        
-        let sql = `
-            SELECT 
-                s.*,
-                f.floor_name,
-                sd.products,
-                sd.brands,
-                sd.hours,
-                sd.rating,
-                sd.reviews
-            FROM mall.stores s
-            JOIN mall.floors f ON s.floor_id = f.id
-            LEFT JOIN mall.store_details sd ON s.id = sd.store_id
-            WHERE 1=1
-        `;
-        const params = [];
-        let paramCount = 1;
-        
-        if (floor) {
-            sql += ` AND f.floor_number = $${paramCount}`;
-            params.push(parseInt(floor));
-            paramCount++;
+try {
+        const floorNumber = parseInt(req.params.floor);
+
+        if (isNaN(floorNumber)) {
+            return res.status(400).json({
+                error: "Invalid floor number"
+            });
         }
-        if (type) {
-            sql += ` AND s.type = $${paramCount}`;
-            params.push(type);
-            paramCount++;
-        }
-        if (category) {
-            sql += ` AND s.category = $${paramCount}`;
-            params.push(category);
-            paramCount++;
-        }
-        if (status) {
-            sql += ` AND s.status = $${paramCount}`;
-            params.push(status);
-            paramCount++;
-        }
-        
-        sql += ' ORDER BY s.name';
-        
-        const result = await client.query(sql, params);
-        res.json({
-            total: result.rows.length,
-            stores: result.rows
-        });
+
+        const result = await client.query(`
+            SELECT
+                mf.id,
+                mf.floor_id,
+                ST_AsGeoJSON(mf.geom)::json AS geometry
+            FROM public.map_features mf
+            JOIN public.floors f
+                ON mf.floor_id = f.id
+            WHERE f.floor_number = $1
+        `, [floorNumber]);
+
+        const geojson = {
+            type: "FeatureCollection",
+            features: result.rows.map(feature => ({
+                type: "Feature",
+                properties: {
+                    id: feature.id,
+                    floor_id: feature.floor_id
+                },
+                geometry: feature.geometry
+            }))
+        };
+
+        res.json(geojson);
+
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("Map features API error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
