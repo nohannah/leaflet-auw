@@ -20,7 +20,11 @@ let pendingImage = null;
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 function localStoreData(feature) { const key = feature.properties?.store_id || feature.properties?.id; return key ? JSON.parse(localStorage.getItem(`bali-store-${key}`) || 'null') : null; }
-function featureLabel(feature) { const properties = feature.properties || {}; return localStoreData(feature)?.name || properties.name || properties.store_id || properties.id || 'Unnamed space'; }
+function featureLabel(feature) {
+    const properties = feature.properties || {};
+    // Database name from PostgreSQL takes top priority!
+    return properties.name || localStoreData(feature)?.name || properties.store_id || properties.id || 'Unnamed space';
+}
 function categoryIcon(feature) { const value = `${feature.properties?.category || ''} ${feature.properties?.type || ''} ${featureLabel(feature)}`.toLowerCase(); const match = categories.find(([key, label]) => value.includes(label.toLowerCase()) || value.includes(key.replace('-', ' '))); return match ? `${iconRoot}${match[0]}.svg` : null; }
 function mapFeatureIcon(feature) {
     const name = featureLabel(feature).toLowerCase();
@@ -67,7 +71,17 @@ function setDetails(feature) {
     }));
 }
 function resetLayerStyle(layer) { layer.setStyle({ color: '#655d54', weight: 1.2, opacity: 0.85, fillColor: '#f7f1e8', fillOpacity: 0.32 }); }
-function selectFeature(feature, layer) { if (selectedLayer) resetLayerStyle(selectedLayer); selectedLayer = layer; layer.setStyle({ color: '#9a6c35', weight: 2.5, opacity: 1, fillColor: '#f3d8b5', fillOpacity: 0.72 }); layer.bringToFront(); setDetails(feature); if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { maxZoom: 1, padding: [60, 60] }); }
+function selectFeature(feature, layer) {
+    if (selectedLayer) resetLayerStyle(selectedLayer);
+    selectedLayer = layer;
+    layer.setStyle({ color: '#9a6c35', weight: 2.5, opacity: 1, fillColor: '#f3d8b5', fillOpacity: 0.72 });
+    layer.bringToFront();
+    setDetails(feature);
+    // Smoothly pan to the store without blowing up the map zoom level!
+    if (layer.getBounds().isValid()) {
+        map.panTo(layer.getBounds().getCenter(), { animate: true });
+    }
+}
 function matchesCategory(feature, label) { if (!label) return true; const value = `${feature.properties?.category || ''} ${feature.properties?.type || ''} ${featureLabel(feature)}`.toLowerCase(); const aliases = { 'elevator': ['elevator', 'lift'], 'lifts': ['elevator', 'lift'], 'restroom': ['restroom', 'toilet'], 'toilets': ['restroom', 'toilet'], 'escalator': ['escalator'], 'escalators': ['escalator'], 'parking': ['parking'], 'fire exit': ['fire exit'], 'fire exits': ['fire exit'] }; return (aliases[label.toLowerCase()] || [label.toLowerCase()]).some(alias => value.includes(alias)); }
 function filterFeatures(label) { activeCategory = label; document.querySelectorAll('.category-item, .category-filter').forEach(button => button.classList.toggle('is-active', button.dataset.category === label)); if (!storeLayer) return; storeLayer.eachLayer(layer => { const visible = matchesCategory(layer.feature, label); layer.setStyle({ opacity: visible ? 0.85 : 0.08, fillOpacity: visible ? 0.32 : 0.03 }); const marker = featureMarkers.get(layer.feature); if (marker) marker.setOpacity(visible ? 1 : 0.08); }); }
 function buildCategoryBar() { return; }
