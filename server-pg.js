@@ -69,44 +69,122 @@ app.get('/api/map/:floor', async (req, res) => {
             });
         }
 
-        const result = await client.query(`
-            SELECT
-                s.id,
-                s.store_id,
-                s.name,
-                s.type,
-                s.category,
-                s.status,
-                s.geometry_type,
-                s.coordinates,
-                f.floor_number,
-                f.floor_name
-            FROM mall.stores s
-            JOIN mall.floors f
-                ON s.floor_id = f.id
-            WHERE f.floor_number = $1
-        `, [floorNumber]);
+        let geojson = null;
 
-        const geojson = {
-            type: "FeatureCollection",
-            features: result.rows.map(store => ({
-                type: "Feature",
-                properties: {
-                    id: store.id,
-                    store_id: store.store_id,
-                    name: store.name,
-                    type: store.type,
-                    category: store.category,
-                    status: store.status,
-                    floor_number: store.floor_number,
-                    floor_name: store.floor_name
-                },
-                geometry: {
-                    type: store.geometry_type,
-                    coordinates: store.coordinates
+        // 1. Try public.stores (PostGIS geometry)
+        try {
+            const publicResult = await client.query(`
+                SELECT
+                    s.id,
+                    s.store_number,
+                    s.name,
+                    COALESCE(s.store_type, 'retail') AS category,
+                    'shop' AS type,
+                    ST_AsGeoJSON(s.geom)::json AS geometry
+                FROM public.stores s
+                WHERE s.geom IS NOT NULL
+                ORDER BY s.id
+            `);
+
+            if (publicResult.rows.length > 0) {
+                let facilities = [];
+                try {
+                    const featResult = await client.query(`
+                        SELECT
+                            id,
+                            name,
+                            feature_type AS type,
+                            COALESCE(feature_type, 'facility') AS category,
+                            ST_AsGeoJSON(geom)::json AS geometry
+                        FROM public.map_features
+                        WHERE geom IS NOT NULL
+                        ORDER BY id
+                    `);
+                    facilities = featResult.rows;
+                } catch (e) {
+                    // map_features optional
                 }
-            }))
-        };
+
+                const allFeatures = [
+                    ...publicResult.rows.map(s => ({
+                        type: "Feature",
+                        properties: {
+                            id: s.id,
+                            store_id: s.store_number,
+                            name: s.name,
+                            type: s.type,
+                            category: s.category,
+                            status: "active",
+                            floor_number: floorNumber,
+                            floor_name: "Ground Floor"
+                        },
+                        geometry: s.geometry
+                    })),
+                    ...facilities.map(f => ({
+                        type: "Feature",
+                        properties: {
+                            id: f.id,
+                            name: f.name,
+                            type: f.type,
+                            category: f.category,
+                            status: "active",
+                            floor_number: floorNumber,
+                            floor_name: "Ground Floor"
+                        },
+                        geometry: f.geometry
+                    }))
+                ];
+
+                geojson = {
+                    type: "FeatureCollection",
+                    features: allFeatures
+                };
+            }
+        } catch (postgisError) {
+            // Fallback to mall.stores if public.stores is not available
+        }
+
+        // 2. Fallback to mall.stores
+        if (!geojson) {
+            const result = await client.query(`
+                SELECT
+                    s.id,
+                    s.store_id,
+                    s.name,
+                    s.type,
+                    s.category,
+                    s.status,
+                    s.geometry_type,
+                    s.coordinates,
+                    f.floor_number,
+                    f.floor_name
+                FROM mall.stores s
+                JOIN mall.floors f
+                    ON s.floor_id = f.id
+                WHERE f.floor_number = $1
+            `, [floorNumber]);
+
+            geojson = {
+                type: "FeatureCollection",
+                features: result.rows.map(store => ({
+                    type: "Feature",
+                    properties: {
+                        id: store.id,
+                        store_id: store.store_id,
+                        name: store.name,
+                        type: store.type,
+                        category: store.category,
+                        status: store.status,
+                        floor_number: store.floor_number,
+                        floor_name: store.floor_name
+                    },
+                    geometry: {
+                        type: store.geometry_type,
+                        coordinates: store.coordinates
+                    }
+                }))
+            };
+        }
 
         res.json(geojson);
 
@@ -198,6 +276,68 @@ app.get('/api/stores/:id', async (req, res) => {
             res.status(404).json({ error: `Store '${req.params.id}' not found` });
         }
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 5.1 Update specific store in PostgreSQL
+app.put('/api/stores/:id', async (req, res) => {
+    try {
+        const idParam = req.params.id;
+        const { name, category } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: "Store name cannot be empty" });
+        }
+
+        const cleanName = name.trim();
+        const cleanCategory = category ? category.trim() : null;
+        let rowsUpdated = 0;
+
+        // 1. Update public.stores
+        try {
+            const isNumeric = /^\d+$/.test(idParam);
+            const query = isNumeric
+                ? `UPDATE public.stores
+                   SET name = $1, store_type = COALESCE($2, store_type)
+                   WHERE id = $3 OR store_number = $4
+                   RETURNING id, store_number, name`
+                : `UPDATE public.stores
+                   SET name = $1, store_type = COALESCE($2, store_type)
+                   WHERE store_number = $3
+                   RETURNING id, store_number, name`;
+            const params = isNumeric ? [cleanName, cleanCategory, parseInt(idParam), idParam] : [cleanName, cleanCategory, idParam];
+
+            const result = await client.query(query, params);
+            rowsUpdated += result.rowCount;
+            if (result.rowCount > 0) {
+                console.log(`✅ [Database] Updated store in public.stores: ${result.rows[0].name} (ID: ${result.rows[0].id})`);
+            }
+        } catch (dbErr) {
+            console.error("public.stores update error:", dbErr.message);
+        }
+
+        // 2. Also sync mall.stores if it exists
+        try {
+            await client.query(`
+                UPDATE mall.stores
+                SET name = $1, category = COALESCE($2, category)
+                WHERE store_id = $3
+            `, [cleanName, cleanCategory, idParam]);
+        } catch (mallErr) {
+            // Optional table
+        }
+
+        res.json({
+            success: true,
+            message: "Store successfully updated in PostgreSQL database",
+            id: idParam,
+            name: cleanName,
+            category: cleanCategory,
+            rowsUpdated
+        });
+    } catch (error) {
+        console.error("Store update error:", error);
         res.status(500).json({ error: error.message });
     }
 });

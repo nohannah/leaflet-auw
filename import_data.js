@@ -27,7 +27,7 @@ async function importData() {
                 VALUES
                     ($1, $2, $3, (SELECT id FROM mall.floors WHERE floor_number = 0), $4, $5, $6, $7)
                 ON CONFLICT (store_id) DO UPDATE SET
-                    name = EXCLUDED.name,
+                    name = CASE WHEN mall.stores.name IS NOT NULL AND mall.stores.name != mall.stores.store_id THEN mall.stores.name ELSE EXCLUDED.name END,
                     type = EXCLUDED.type,
                     floor_id = EXCLUDED.floor_id,
                     category = EXCLUDED.category,

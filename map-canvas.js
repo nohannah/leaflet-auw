@@ -81,7 +81,7 @@ function openStoreEditor(feature = null, isNew = false) {
     document.querySelector('#upload-preview').innerHTML = pendingImage ? `<img src="${pendingImage}" alt="Current store image">` : 'No image selected';
     document.querySelector('#store-dialog').showModal();
 }
-function saveStoreEditor(event) {
+async function saveStoreEditor(event) {
     event.preventDefault();
     const name = document.querySelector('#store-name-input').value.trim();
     const category = document.querySelector('#store-category-input').value.trim() || 'retail';
@@ -93,8 +93,30 @@ function saveStoreEditor(event) {
         allFeatures.push(currentFeature);
         storeLayer.addData(currentFeature);
     }
-    const key = currentFeature.properties.store_id || currentFeature.properties.id;
+    if (currentFeature.properties) {
+        currentFeature.properties.name = name;
+        currentFeature.properties.category = category;
+    }
+    const key = currentFeature.properties.id || currentFeature.properties.store_id;
     localStorage.setItem(`bali-store-${key}`, JSON.stringify({ name, category, image: pendingImage, feature: creatingStore ? currentFeature : undefined }));
+
+    // Send update directly to PostgreSQL database
+    try {
+        const targetId = currentFeature.properties.id || currentFeature.properties.store_id;
+        const response = await fetch(`/api/stores/${encodeURIComponent(targetId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, category })
+        });
+        if (response.ok) {
+            console.log('✅ Store updated in PostgreSQL database:', name);
+        } else {
+            console.warn('Database update returned status:', response.status);
+        }
+    } catch (apiErr) {
+        console.warn('Could not contact API to save in database:', apiErr.message);
+    }
+
     const layer = featureLayers.get(currentFeature);
     if (layer) selectFeature(currentFeature, layer);
     document.querySelector('#store-dialog').close();
