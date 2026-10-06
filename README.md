@@ -46,22 +46,8 @@ psql -U postgres -d bali_arcade -f database/bali_arcade.sql
 
 ---
 
-### 4. Configure Environment Variables (`.env`)
 
-Create or update the `.env` file in the project root:
-```env
-DB_USER=postgres
-DB_HOST=localhost
-DB_NAME=bali_arcade
-DB_PASSWORD=123
-DB_PORT=5432
-PORT=3000
-```
-*(Make sure `DB_PASSWORD` matches your local PostgreSQL password).*
-
----
-
-### 5. Start the Server
+### 4. Start the Server
 
 In your terminal, start the Node.js backend:
 ```bash
@@ -78,7 +64,7 @@ You should see:
 
 ---
 
-### 6. View the Map
+### 5. View the Map
 
 Open your browser and navigate to:
 👉 **[http://localhost:3000](http://localhost:3000)**
