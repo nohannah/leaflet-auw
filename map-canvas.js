@@ -1,3 +1,4 @@
+const API_BASE = window.location.origin.includes(':3000') ? '' : 'http://localhost:3000';
 const planWidth = 1440;
 const planHeight = 1024;
 const floorBounds = [[0, 0], [planHeight, planWidth]];
@@ -79,13 +80,30 @@ function openStoreEditor(feature = null, isNew = false) {
     document.querySelector('#store-name-input').value = feature ? featureLabel(feature) : '';
     document.querySelector('#store-category-input').value = feature ? (localStoreData(feature)?.category || feature.properties?.category || '') : '';
     document.querySelector('#upload-preview').innerHTML = pendingImage ? `<img src="${pendingImage}" alt="Current store image">` : 'No image selected';
+    const noteEl = document.querySelector('#dialog-note');
+    if (noteEl) {
+        noteEl.textContent = 'Changes will be saved directly to your PostgreSQL database.';
+        noteEl.style.color = '#655d54';
+    }
     document.querySelector('#store-dialog').showModal();
 }
 async function saveStoreEditor(event) {
     event.preventDefault();
-    const name = document.querySelector('#store-name-input').value.trim();
-    const category = document.querySelector('#store-category-input').value.trim() || 'retail';
+    const nameInput = document.querySelector('#store-name-input');
+    const categoryInput = document.querySelector('#store-category-input');
+    const noteEl = document.querySelector('#dialog-note');
+    const saveBtn = document.querySelector('.dialog-save');
+
+    const name = nameInput.value.trim();
+    const category = categoryInput.value.trim() || 'retail';
     if (!name) return;
+
+    if (noteEl) {
+        noteEl.textContent = 'Saving directly to PostgreSQL database...';
+        noteEl.style.color = '#9a6c35';
+    }
+    if (saveBtn) saveBtn.disabled = true;
+
     if (creatingStore) {
         const id = `local-${Date.now()}`;
         const location = newStoreLocation || map.getCenter();
@@ -101,25 +119,74 @@ async function saveStoreEditor(event) {
     localStorage.setItem(`bali-store-${key}`, JSON.stringify({ name, category, image: pendingImage, feature: creatingStore ? currentFeature : undefined }));
 
     // Send update directly to PostgreSQL database
+      let dbSaved = false;
     try {
-        const targetId = currentFeature.properties.id || currentFeature.properties.store_id;
-        const response = await fetch(`/api/stores/${encodeURIComponent(targetId)}`, {
+        const targetId = currentFeature?.properties?.id || currentFeature?.properties?.store_id || currentFeature?.properties?.name;
+        let response = await
+         fetch(`${API_BASE}/api/stores/${encodeURIComponent(targetId)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, category })
+            body: JSON.stringify({
+                name,
+                category,
+                id: currentFeature.properties.id,
+                store_number: currentFeature.properties.store_id || currentFeature.properties.name
+            })
         });
-        if (response.ok) {
-            console.log('✅ Store updated in PostgreSQL database:', name);
+
+        // Fallback to POST if PUT isn't allowed or route not found
+        if (response.status === 404 || response.status === 405) {
+            response = await fetch(`${API_BASE}/api/stores/${encodeURIComponent(targetId)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    category,
+                    id: currentFeature.properties.id,
+                    store_number: currentFeature.properties.store_id || currentFeature.properties.name
+                })
+            });
+        }
+
+        const rawText = await response.text();
+        let result = {};
+        try {
+            result = JSON.parse(rawText);
+        } catch (parseErr) {
+            throw new Error(`Server returned HTTP ${response.status}: not JSON. Please restart "node server-pg.js" in terminal.`);
+        }
+
+        if (response.ok && result.success) {
+            dbSaved = true;
+            if (noteEl) {
+                noteEl.textContent = `✅ Saved to database: "${name}"`;
+                noteEl.style.color = '#2e7d32';
+            }
+            console.log('✅ Store updated in PostgreSQL database:', result);
         } else {
-            console.warn('Database update returned status:', response.status);
+            if (noteEl) {
+                noteEl.textContent = `⚠️ Database response: ${result.message || 'Update failed'}`;
+                noteEl.style.color = '#c62828';
+            }
         }
     } catch (apiErr) {
-        console.warn('Could not contact API to save in database:', apiErr.message);
+        if (noteEl) {
+            noteEl.textContent = `❌ Could not connect (${apiErr.message}). Make sure 'node server-pg.js' is running.`;
+            noteEl.style.color = '#c62828';
+        }
+        console.error('Could not contact API to save in database:', apiErr);
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
     }
 
     const layer = featureLayers.get(currentFeature);
     if (layer) selectFeature(currentFeature, layer);
-    document.querySelector('#store-dialog').close();
+
+    if (dbSaved) {
+        setTimeout(() => {
+            document.querySelector('#store-dialog').close();
+        }, 500);
+    }
 }
 function loadLocalStores() {
     Object.keys(localStorage).filter(key => key.startsWith('bali-store-local-')).forEach(key => {
@@ -157,7 +224,7 @@ function setupAdminGate() {
     }, true);
     adminForm.addEventListener('submit', async event => {
         event.preventDefault();
-        const response = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: document.querySelector('#admin-password').value }) });
+        const response = await fetch(`${API_BASE}/api/admin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: document.querySelector('#admin-password').value }) });
         const result = await response.json();
         if (!response.ok) {
             adminError.textContent = result.error || 'Admin login failed';
@@ -183,4 +250,4 @@ wireUi();
 document.querySelector('#add-store')?.remove();
 wireFloorSelect();
 map.fitBounds(floorBounds);
-fetch('/api/map/0').then(response => { if (!response.ok) throw new Error('Failed to load map data'); return response.json(); }).then(data => { allFeatures = data.features || []; storeLayer = L.geoJSON(data, { pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 8, color: '#655d54', fillColor: '#f7f1e8', fillOpacity: 0.8 }), style: () => ({ color: '#655d54', weight: 1.2, opacity: 0.85, fillColor: '#f7f1e8', fillOpacity: 0.32 }), onEachFeature: (feature, layer) => { featureLayers.set(feature, layer); addFeatureIcon(feature, layer); layer.on({ mouseover: () => { if (layer !== selectedLayer) layer.setStyle({ fillColor: '#e8dfcf', fillOpacity: 0.65, weight: 1.8 }); }, mouseout: () => { if (layer !== selectedLayer) resetLayerStyle(layer); }, click: () => selectFeature(feature, layer) }); } }).addTo(map); loadLocalStores(); if (activeCategory) filterFeatures(activeCategory); }).catch(error => console.error('Map data could not be loaded:', error));
+fetch(`${API_BASE}/api/map/0`).then(response => { if (!response.ok) throw new Error('Failed to load map data'); return response.json(); }).then(data => { allFeatures = data.features || []; storeLayer = L.geoJSON(data, { pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 8, color: '#655d54', fillColor: '#f7f1e8', fillOpacity: 0.8 }), style: () => ({ color: '#655d54', weight: 1.2, opacity: 0.85, fillColor: '#f7f1e8', fillOpacity: 0.32 }), onEachFeature: (feature, layer) => { featureLayers.set(feature, layer); addFeatureIcon(feature, layer); layer.on({ mouseover: () => { if (layer !== selectedLayer) layer.setStyle({ fillColor: '#e8dfcf', fillOpacity: 0.65, weight: 1.8 }); }, mouseout: () => { if (layer !== selectedLayer) resetLayerStyle(layer); }, click: () => selectFeature(feature, layer) }); } }).addTo(map); loadLocalStores(); if (activeCategory) filterFeatures(activeCategory); }).catch(error => console.error('Map data could not be loaded:', error));

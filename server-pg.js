@@ -22,8 +22,18 @@ client.connect()
     .then(() => console.log('✅ Connected to PostgreSQL'))
     .catch(err => console.error('❌ Database connection error:', err));
 
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
+
+// Log every incoming request so we can see what the frontend is sending
+app.use((req, res, next) => {
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+    next();
+});
 
 // ============ API ENDPOINTS ============
 
@@ -280,11 +290,11 @@ app.get('/api/stores/:id', async (req, res) => {
     }
 });
 
-// 5.1 Update specific store in PostgreSQL
-app.put('/api/stores/:id', async (req, res) => {
+// 5.1 Update specific store in PostgreSQL (supports both PUT and POST)
+const handleStoreUpdate = async (req, res) => {
     try {
         const idParam = req.params.id;
-        const { name, category } = req.body;
+        const { name, category, id: bodyId, store_number: bodyStoreNumber } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({ error: "Store name cannot be empty" });
@@ -293,25 +303,29 @@ app.put('/api/stores/:id', async (req, res) => {
         const cleanName = name.trim();
         const cleanCategory = category ? category.trim() : null;
         let rowsUpdated = 0;
+        let updatedStore = null;
 
         // 1. Update public.stores
         try {
-            const isNumeric = /^\d+$/.test(idParam);
-            const query = isNumeric
-                ? `UPDATE public.stores
-                   SET name = $1, store_type = COALESCE($2, store_type)
-                   WHERE id = $3 OR store_number = $4
-                   RETURNING id, store_number, name`
-                : `UPDATE public.stores
-                   SET name = $1, store_type = COALESCE($2, store_type)
-                   WHERE store_number = $3
-                   RETURNING id, store_number, name`;
-            const params = isNumeric ? [cleanName, cleanCategory, parseInt(idParam), idParam] : [cleanName, cleanCategory, idParam];
+            const numId = /^\d+$/.test(idParam) ? parseInt(idParam) : (/^\d+$/.test(String(bodyId)) ? parseInt(bodyId) : -1);
+            const storeNum = String(bodyStoreNumber || idParam);
+
+            const query = `
+                UPDATE public.stores
+                SET name = $1,
+                    store_type = COALESCE($2, store_type)
+                WHERE id = $3
+                   OR store_number = $4
+                   OR store_number = $5
+                RETURNING id, store_number, name, store_type;
+            `;
+            const params = [cleanName, cleanCategory, numId, storeNum, idParam];
 
             const result = await client.query(query, params);
             rowsUpdated += result.rowCount;
             if (result.rowCount > 0) {
-                console.log(`✅ [Database] Updated store in public.stores: ${result.rows[0].name} (ID: ${result.rows[0].id})`);
+                updatedStore = result.rows[0];
+                console.log(`💾 [POSTGRESQL] Successfully saved store name: "${updatedStore.name}" (Store #: ${updatedStore.store_number}, ID: ${updatedStore.id})`);
             }
         } catch (dbErr) {
             console.error("public.stores update error:", dbErr.message);
@@ -322,25 +336,35 @@ app.put('/api/stores/:id', async (req, res) => {
             await client.query(`
                 UPDATE mall.stores
                 SET name = $1, category = COALESCE($2, category)
-                WHERE store_id = $3
-            `, [cleanName, cleanCategory, idParam]);
+                WHERE store_id = $3 OR store_id = $4
+            `, [cleanName, cleanCategory, idParam, String(bodyStoreNumber || '')]);
         } catch (mallErr) {
             // Optional table
         }
 
-        res.json({
-            success: true,
-            message: "Store successfully updated in PostgreSQL database",
-            id: idParam,
-            name: cleanName,
-            category: cleanCategory,
-            rowsUpdated
-        });
+        if (rowsUpdated > 0) {
+            res.json({
+                success: true,
+                message: "Store successfully updated in PostgreSQL database",
+                store: updatedStore,
+                rowsUpdated
+            });
+        } else {
+            console.warn(`⚠️ [POSTGRESQL] No store found matching ID/number '${idParam}'`);
+            res.json({
+                success: false,
+                message: `Store '${idParam}' not found in database to update`,
+                rowsUpdated: 0
+            });
+        }
     } catch (error) {
         console.error("Store update error:", error);
         res.status(500).json({ error: error.message });
     }
-});
+};
+
+app.put('/api/stores/:id', handleStoreUpdate);
+app.post('/api/stores/:id', handleStoreUpdate);
 
 // 6. Search stores
 app.get('/api/search', async (req, res) => {
@@ -440,16 +464,25 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`\n🚀 Bali Arcade API Server (PostgreSQL)`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 Bali Arcade API Server (PostgreSQL) is RUNNING!`);
     console.log(`📡 URL: http://localhost:${PORT}`);
-    console.log(`\n📋 Available Endpoints:`);
+    console.log(`📋 Available Endpoints:`);
     console.log(`   GET  /api/health`);
     console.log(`   GET  /api/floors`);
     console.log(`   GET  /api/map/:floor       (GeoJSON)`);
     console.log(`   GET  /api/stores`);
-    console.log(`   GET  /api/stores/:id`);
+    console.log(`   PUT  /api/stores/:id       (Save to PostgreSQL)`);
     console.log(`   GET  /api/search?q=keyword`);
     console.log(`   GET  /api/categories`);
     console.log(`   GET  /api/stats\n`);
+}).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ PORT ${PORT} IS ALREADY IN USE!`);
+        console.error(`👉 Another process is already running on port ${PORT}.`);
+        console.error(`👉 In PowerShell, run: Stop-Process -Name node -Force`);
+        console.error(`👉 Then start again: node server-pg.js\n`);
+    } else {
+        console.error(`\n❌ Server error:`, err);
+    }
 });
