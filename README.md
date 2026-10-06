@@ -4,7 +4,7 @@ AUW internship project mapping spaces in Bangladesh. An interactive indoor mall 
 
 ---
 
-## 🚀 Quick Setup Guide for Teammates
+##  Quick Setup Guide 
 
 Follow these steps to run the project on your local computer.
 
